@@ -1,0 +1,6 @@
+# runtime data - never commit the live database or keys
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm
+data/.mailkey
+config.php

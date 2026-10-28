@@ -1,0 +1,11 @@
+# Fivedock CRM (Free) - Apache config. (nginx users: see README for the equivalent.)
+Options -Indexes
+DirectoryIndex app.html index.php
+
+# Never serve the database, encryption key, or config over HTTP.
+<FilesMatch "\.(sqlite|sqlite-wal|sqlite-shm|mailkey)$">
+  Require all denied
+</FilesMatch>
+<Files "config.php">
+  Require all denied
+</Files>
