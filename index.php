@@ -52,7 +52,7 @@ switch ($route) {
             'setup_needed' => $setup,
             'user' => $me,
             'csrf' => csrf_token(),
-            'settings' => ['org_name' => setting($db, 'org_name', 'My Company'), 'currency' => setting($db, 'currency', '$'), 'imap_available' => imap_available()],
+            'settings' => ['org_name' => setting($db, 'org_name', 'My Company'), 'org_address' => setting($db, 'org_address', ''), 'currency' => setting($db, 'currency', '$'), 'imap_available' => imap_available()],
         ]);
     case 'setup':   json_out(do_setup($db, body_json()));
     case 'login':   json_out(do_login($db, body_json()));

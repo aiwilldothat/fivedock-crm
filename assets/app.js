@@ -462,9 +462,10 @@ const SETTINGS = {};
 SETTINGS.general = async () => {
   $('#panel').innerHTML = `<div class="card" style="max-width:520px"><div class="hd"><h3>Organisation</h3></div><div class="bd">
     <label class="fld"><span>Organisation name</span><input id="org" value="${esc(state.settings.org_name || '')}"></label>
+    <label class="fld"><span>Address <span class="muted" style="font-weight:400">(shown on printed quotes &amp; invoices)</span></span><textarea id="addr" style="min-height:70px">${esc(state.settings.org_address || '')}</textarea></label>
     <label class="fld"><span>Currency symbol</span><input id="cur" value="${esc(state.settings.currency || '$')}" style="max-width:120px"></label>
     <button class="btn" id="save">Save</button></div></div>`;
-  $('#save').onclick = async () => { await apiPost('save-settings', { org_name: $('#org').value, currency: $('#cur').value }); state.settings.org_name = $('#org').value; state.settings.currency = $('#cur').value; state.cur = $('#cur').value || '$'; toast('Saved', 'good'); renderShell(); route(); };
+  $('#save').onclick = async () => { await apiPost('save-settings', { org_name: $('#org').value, org_address: $('#addr').value, currency: $('#cur').value }); state.settings.org_name = $('#org').value; state.settings.org_address = $('#addr').value; state.settings.currency = $('#cur').value; state.cur = $('#cur').value || '$'; toast('Saved', 'good'); renderShell(); route(); };
 };
 SETTINGS.users = async () => {
   const d = (await apiGet('users')).data;
@@ -749,7 +750,7 @@ async function salesPrint(id) {
   const w = window.open('', '_blank');
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.number)}</title>
     <style>body{font-family:Arial,sans-serif;color:#10202a;max-width:720px;margin:30px auto;padding:0 20px}h1{color:#0e7c86;margin:0}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:8px;border-bottom:1px solid #ddd;text-align:left}.tot{display:flex;justify-content:flex-end;margin-top:14px}.tot div{min-width:220px}.row{display:flex;justify-content:space-between;padding:4px 0}.hd{display:flex;justify-content:space-between;align-items:flex-start}</style></head><body>
-    <div class="hd"><div><h1>${org}</h1><div style="color:#5b6b76">1 Katherine St, Chatswood NSW 2067</div></div><div style="text-align:right"><h2 style="margin:0">${label}</h2><div><b>${esc(d.number)}</b></div><div style="color:#5b6b76">${esc(d.issue_date || '')}</div></div></div>
+    <div class="hd"><div><h1>${org}</h1>${state.settings.org_address ? `<div style="color:#5b6b76;white-space:pre-line">${esc(state.settings.org_address)}</div>` : ''}</div><div style="text-align:right"><h2 style="margin:0">${label}</h2><div><b>${esc(d.number)}</b></div><div style="color:#5b6b76">${esc(d.issue_date || '')}</div></div></div>
     <div style="margin-top:20px"><b>To:</b> ${cust}</div>
     <table><thead><tr><th>Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Price</th><th style="text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="tot"><div><div class="row"><span>Subtotal</span><span>${money(d.subtotal)}</span></div><div class="row"><span>Tax</span><span>${money(d.tax)}</span></div><div class="row" style="font-weight:bold;border-top:2px solid #0e7c86;padding-top:6px"><span>Total</span><span>${money(d.total)}</span></div></div></div>

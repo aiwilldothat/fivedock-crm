@@ -329,6 +329,7 @@ function export_csv(PDO $db, string $type): void
 function settings_save(PDO $db, array $me, array $b): array
 {
     if (isset($b['org_name'])) { setting_set($db, 'org_name', s($b['org_name'], 120)); }
+    if (isset($b['org_address'])) { setting_set($db, 'org_address', s($b['org_address'], 300)); }
     if (isset($b['currency'])) { setting_set($db, 'currency', s($b['currency'], 6) ?: '$'); }
     return ['ok' => true];
 }
