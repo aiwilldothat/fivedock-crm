@@ -308,6 +308,13 @@ function export_csv(PDO $db, string $type): void
         $cols = ['Title', 'Company', 'Contact', 'Value', 'Stage', 'Status', 'Expected close'];
         $rows = $db->query("SELECT d.title,co.name,(c.first_name||' '||c.last_name),d.value,st.name,d.status,d.expected_close
             FROM deals d LEFT JOIN companies co ON co.id=d.company_id LEFT JOIN contacts c ON c.id=d.contact_id LEFT JOIN pipeline_stages st ON st.id=d.stage_id ORDER BY d.id DESC")->fetchAll(PDO::FETCH_NUM);
+    } elseif ($type === 'items') {
+        $cols = ['Code', 'Name', 'Type', 'Unit', 'Price', 'Cost', 'Qty on hand', 'Reorder level'];
+        $rows = $db->query("SELECT code,name,type,unit,price,cost,qty,reorder_level FROM items ORDER BY code")->fetchAll(PDO::FETCH_NUM);
+    } elseif ($type === 'invoices') {
+        $cols = ['Number', 'Date', 'Customer', 'Status', 'Subtotal', 'Tax', 'Total', 'Paid'];
+        $rows = $db->query("SELECT d.number,d.issue_date,COALESCE(co.name,(c.first_name||' '||c.last_name)),d.status,d.subtotal,d.tax,d.total,d.paid
+            FROM sales_docs d LEFT JOIN companies co ON co.id=d.company_id LEFT JOIN contacts c ON c.id=d.contact_id WHERE d.doc_type='invoice' ORDER BY d.id DESC")->fetchAll(PDO::FETCH_NUM);
     } else { json_error('Unknown export', 404); }
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $type . '-' . date('Ymd') . '.csv"');

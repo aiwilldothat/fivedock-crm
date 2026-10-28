@@ -1,7 +1,7 @@
 # Fivedock CRM (Free)
 
-A free, open-source, self-hosted CRM you can install in minutes. Pure PHP and SQLite - no
-framework, no build step, no database server, no subscription, and no bundled AI or email.
+A free, open-source, self-hosted CRM and light ERP you can install in minutes. Pure PHP and
+SQLite - no framework, no build step, no database server, no subscription, and no bundled AI or email.
 
 Your data stays on your server. Email is sent only through your own mail accounts (bring your own
 SMTP/IMAP). If you ever want AI features, you bring your own API key - nothing is phoned home.
@@ -11,10 +11,13 @@ SMTP/IMAP). If you ever want AI features, you bring your own API key - nothing i
 - Contacts and companies with search, tags, notes, and a full activity timeline
 - Deal pipeline with a drag-and-drop kanban board, values, and win/lost tracking
 - Tasks and activities (calls, meetings, tasks, notes) with due dates and reminders
-- Bring-your-own email: add your SMTP account(s) and send mail to contacts straight from the CRM
+- Quotes and invoices with line items, tax, auto numbering, quote-to-invoice conversion, payments and a print/PDF view
+- Items and inventory: stock and service items, live stock on hand, reorder levels and low-stock flags, full stock movement history
+- Purchasing: purchase orders to suppliers, receive straight into stock, supplier records
+- Bring-your-own email: add your SMTP account(s) and send mail to contacts straight from the app
 - Optional IMAP inbox to read replies (needs the PHP imap extension)
 - Multiple users with admin and user roles
-- CSV export for contacts, companies, and deals
+- CSV export for contacts, companies, deals, items and invoices
 - Self-installing SQLite database - no setup scripts to run
 
 ## Requirements

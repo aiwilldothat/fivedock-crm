@@ -92,6 +92,13 @@ const NAV = [
   ['companies', 'Companies', '🏢'],
   ['pipeline', 'Pipeline', '📊'],
   ['activities', 'Tasks & activity', '✅'],
+  ['GRP', 'Sales'],
+  ['quotes', 'Quotes', '🧾'],
+  ['invoices', 'Invoices', '💰'],
+  ['GRP', 'Inventory'],
+  ['items', 'Items', '📦'],
+  ['suppliers', 'Suppliers', '🚚'],
+  ['purchases', 'Purchase Orders', '📥'],
   ['GRP', 'Email'],
   ['inbox', 'Inbox', '📥'],
   ['GRP', 'Admin'],
@@ -147,6 +154,12 @@ ROUTES.dashboard = async () => {
       ${kpi('Open deals', d.open_deals, 'var(--accent)')}
       ${kpi('Pipeline value', money(d.pipeline_value), 'var(--info)')}
       ${kpi('Tasks due', d.tasks_due, d.tasks_due ? 'var(--bad)' : 'var(--good)')}
+    </div>
+    <div class="grid cols-4" style="margin-top:16px">
+      ${kpi('Open invoices', d.erp.open_invoices, 'var(--brand)')}
+      ${kpi('Unpaid', money(d.erp.unpaid_total), d.erp.unpaid_total > 0 ? 'var(--accent)' : 'var(--good)')}
+      ${kpi('Revenue (paid)', money(d.erp.revenue), 'var(--good)')}
+      ${kpi('Low stock', d.erp.low_stock, d.erp.low_stock > 0 ? 'var(--bad)' : 'var(--good)')}
     </div>
     <div class="grid cols-2" style="margin-top:16px">
       <div class="card"><div class="hd"><h3>Recent activity</h3></div><div class="tablewrap"><table class="tbl"><tbody>${recent}</tbody></table></div></div>
@@ -524,6 +537,292 @@ SETTINGS.account = async () => {
   $('#logout').onclick = async () => { await apiPost('logout', {}); location.reload(); };
 };
 function openMyAccount() { location.hash = 'settings'; }
+
+/* =================================================================
+ * CORE ERP - items/inventory, sales (quotes/invoices), purchasing
+ * ================================================================= */
+
+/* ---- Items ---- */
+ROUTES.items = async (arg) => {
+  if (arg) return itemDetail(+arg);
+  const d = (await apiGet('items')).data;
+  view().innerHTML = topbar('Items', d.length + ' total') + `
+    <div class="toolbar"><input class="search" id="q" placeholder="Search items..."><div class="spacer"></div>
+      <a class="btn ghost sm" href="${API}export&type=items">Export CSV</a><button class="btn" id="new">+ Item</button></div>
+    <div class="card"><div class="tablewrap"><table class="tbl"><thead><tr><th>Code</th><th>Name</th><th>Type</th><th class="r">Price</th><th class="r">Cost</th><th class="r">On hand</th><th>Status</th></tr></thead><tbody>
+    ${d.map(itemRow).join('') || '<tr><td colspan="7" class="empty">No items yet. Add products or services to sell and buy.</td></tr>'}
+    </tbody></table></div></div>`;
+  let timer; $('#q').oninput = (e) => { clearTimeout(timer); const q = e.target.value; timer = setTimeout(async () => { const r = (await apiGet('items' + (q ? '&q=' + encodeURIComponent(q) : ''))).data; $('#view .tbl tbody').innerHTML = r.map(itemRow).join('') || '<tr><td colspan="7" class="empty">No matches.</td></tr>'; wireRows('items'); }, 300); };
+  $('#new').onclick = () => itemForm(null);
+  wireRows('items');
+};
+function itemRow(i) {
+  const low = i.type === 'stock' && i.reorder_level > 0 && (+i.qty) <= (+i.reorder_level);
+  return `<tr class="clk" data-id="${i.id}"><td class="mono">${esc(i.code)}</td><td><b>${esc(i.name)}</b></td><td>${i.type === 'service' ? 'Service' : 'Stock'}</td><td class="r">${money(i.price)}</td><td class="r">${money(i.cost)}</td><td class="r">${i.type === 'service' ? '<span class="muted">-</span>' : ((+i.qty).toFixed(2) + (low ? ' <span class="badge red">low</span>' : ''))}</td><td>${i.active == 1 ? '<span class="badge green">active</span>' : '<span class="badge">off</span>'}</td></tr>`;
+}
+function wireRows(hash) { $$('#view tr[data-id]').forEach((tr) => (tr.onclick = () => (location.hash = hash + '/' + tr.dataset.id))); }
+async function itemDetail(id) {
+  const i = (await apiGet('item&id=' + id)).data;
+  view().innerHTML = topbar(i.name, 'Item ' + i.code) + `
+    <div class="toolbar"><a class="btn ghost sm" href="#items">&larr; Items</a><div class="spacer"></div>
+      ${i.type === 'stock' ? '<button class="btn ghost sm" id="adj">Adjust stock</button>' : ''}
+      <button class="btn ghost sm" id="edit">Edit</button><button class="btn danger sm" id="del">Delete</button></div>
+    <div class="grid cols-2">
+      <div class="card"><div class="hd"><h3>Details</h3></div><div class="bd"><dl class="dl">
+        <dt>Type</dt><dd>${i.type === 'service' ? 'Service' : 'Stock'}</dd>
+        <dt>Sell price</dt><dd>${money(i.price)} / ${esc(i.unit)}</dd>
+        <dt>Cost</dt><dd>${money(i.cost)}</dd>
+        <dt>Tax rate</dt><dd>${(+i.tax_rate).toFixed(2)}%</dd>
+        ${i.type === 'stock' ? `<dt>On hand</dt><dd><b>${(+i.qty).toFixed(2)}</b> ${esc(i.unit)}</dd><dt>Reorder level</dt><dd>${(+i.reorder_level).toFixed(2)}</dd>` : ''}
+        <dt>Description</dt><dd style="white-space:pre-wrap">${esc(i.description || '-')}</dd>
+      </dl></div></div>
+      <div class="card"><div class="hd"><h3>Stock movements</h3></div><div class="tablewrap"><table class="tbl"><tbody>
+        ${(i.moves || []).map((m) => `<tr><td>${esc(dt(m.created_at))}</td><td>${esc(m.reason)}${m.ref ? ' <span class="muted">' + esc(m.ref) + '</span>' : ''}</td><td class="r" style="color:${m.qty_change >= 0 ? 'var(--good)' : 'var(--bad)'}">${m.qty_change >= 0 ? '+' : ''}${(+m.qty_change).toFixed(2)}</td></tr>`).join('') || '<tr><td class="empty">No movements.</td></tr>'}
+      </tbody></table></div></div>
+    </div>`;
+  $('#edit').onclick = () => itemForm(i);
+  $('#del').onclick = async () => { if (!confirm('Delete this item?')) return; try { await apiPost('delete', { type: 'item', id }); toast('Deleted'); location.hash = 'items'; } catch (e) { toast(e.message, 'bad'); } };
+  const a = $('#adj'); if (a) a.onclick = () => stockAdjustForm(i);
+}
+function itemForm(rec) {
+  const isNew = !rec;
+  openForm({
+    title: rec ? 'Edit item' : 'New item',
+    fields: [
+      { key: 'name', label: 'Name' },
+      { key: 'code', label: 'Code (auto if blank)', half: 1 },
+      { key: 'type', label: 'Type', type: 'select', options: [['stock', 'Stock (tracked)'], ['service', 'Service']], half: 1 },
+      { key: 'price', label: 'Sell price', type: 'number', half: 1 }, { key: 'cost', label: 'Cost', type: 'number', half: 1 },
+      { key: 'tax_rate', label: 'Tax rate %', type: 'number', half: 1 }, { key: 'unit', label: 'Unit', half: 1, def: 'ea' },
+      { key: 'reorder_level', label: 'Reorder level', type: 'number', half: 1 },
+      ...(isNew ? [{ key: 'qty', label: 'Opening qty', type: 'number', half: 1 }] : []),
+      { key: 'description', label: 'Description', type: 'textarea' },
+      { key: 'active', label: 'Active', type: 'checkbox', def: 1 },
+    ],
+    rec: rec || { type: 'stock', unit: 'ea', active: 1, tax_rate: Number(state.settings.tax_rate || 0) },
+    onSave: async (x) => { const r = await apiPost('save-item', x); toast('Saved', 'good'); closeModal(); if (rec) itemDetail(rec.id); else location.hash = 'items/' + r.id; },
+  });
+}
+function stockAdjustForm(i) {
+  openForm({
+    title: 'Adjust stock - ' + i.name,
+    fields: [
+      { key: 'qty_change', label: 'Quantity change (use minus to reduce)', type: 'number' },
+      { key: 'reason', label: 'Reason', def: 'Adjustment' },
+    ],
+    rec: {},
+    onSave: async (x) => { x.item_id = i.id; await apiPost('stock-adjust', x); toast('Stock adjusted', 'good'); closeModal(); itemDetail(i.id); },
+  });
+}
+
+/* ---- Suppliers ---- */
+ROUTES.suppliers = async () => {
+  const d = (await apiGet('suppliers')).data;
+  view().innerHTML = topbar('Suppliers', d.length + ' total') + `
+    <div class="toolbar"><input class="search" id="q" placeholder="Search suppliers..."><div class="spacer"></div><button class="btn" id="new">+ Supplier</button></div>
+    <div class="card"><div class="tablewrap"><table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th></th></tr></thead><tbody>
+    ${d.map((s) => `<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.email || '')}</td><td>${esc(s.phone || '')}</td><td class="r"><div class="btnrow" style="justify-content:flex-end"><button class="btn ghost sm" data-ed="${s.id}">Edit</button><button class="btn danger sm" data-dl="${s.id}">✕</button></div></td></tr>`).join('') || '<tr><td colspan="4" class="empty">No suppliers yet.</td></tr>'}
+    </tbody></table></div></div>`;
+  $('#new').onclick = () => supplierForm(null);
+  let timer; $('#q').oninput = (e) => { clearTimeout(timer); const q = e.target.value; timer = setTimeout(async () => { const r = (await apiGet('suppliers' + (q ? '&q=' + encodeURIComponent(q) : ''))).data; $('#view .tbl tbody').innerHTML = r.map((s) => `<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.email || '')}</td><td>${esc(s.phone || '')}</td><td class="r"><div class="btnrow" style="justify-content:flex-end"><button class="btn ghost sm" data-ed="${s.id}">Edit</button><button class="btn danger sm" data-dl="${s.id}">✕</button></div></td></tr>`).join(''); wireSup(r); }, 300); };
+  wireSup(d);
+  function wireSup(list) {
+    $$('[data-ed]').forEach((b) => (b.onclick = () => supplierForm(list.find((x) => x.id == b.dataset.ed))));
+    $$('[data-dl]').forEach((b) => (b.onclick = async () => { if (!confirm('Delete this supplier?')) return; await apiPost('delete', { type: 'supplier', id: +b.dataset.dl }); toast('Deleted'); ROUTES.suppliers(); }));
+  }
+};
+function supplierForm(rec) {
+  openForm({
+    title: rec ? 'Edit supplier' : 'New supplier',
+    fields: [{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email', type: 'email', half: 1 }, { key: 'phone', label: 'Phone', half: 1 }, { key: 'address', label: 'Address', type: 'textarea' }, { key: 'notes', label: 'Notes', type: 'textarea' }],
+    rec: rec || {},
+    onSave: async (x) => { await apiPost('save-supplier', x); toast('Saved', 'good'); closeModal(); ROUTES.suppliers(); },
+  });
+}
+
+/* ---- Sales (quotes + invoices) ---- */
+ROUTES.quotes = () => salesList('quote');
+ROUTES.invoices = () => salesList('invoice');
+async function salesList(type) {
+  const title = type === 'quote' ? 'Quotes' : 'Invoices';
+  const d = (await apiGet('sales&type=' + type)).data;
+  view().innerHTML = topbar(title, d.length + ' total') + `
+    <div class="toolbar"><div class="spacer"></div>
+      ${type === 'invoice' ? `<a class="btn ghost sm" href="${API}export&type=invoices">Export CSV</a>` : ''}
+      <button class="btn" id="new">+ ${type === 'quote' ? 'Quote' : 'Invoice'}</button></div>
+    <div class="card"><div class="tablewrap"><table class="tbl"><thead><tr><th>Number</th><th>Customer</th><th>Date</th><th>Status</th><th class="r">Total</th>${type === 'invoice' ? '<th class="r">Owing</th>' : ''}</tr></thead><tbody>
+    ${d.map((x) => `<tr class="clk" data-id="${x.id}"><td class="mono"><b>${esc(x.number)}</b></td><td>${esc(x.company || (x.first_name ? x.first_name + ' ' + (x.last_name || '') : '-'))}</td><td>${esc(x.issue_date || '')}</td><td>${salesBadge(x.status)}</td><td class="r">${money(x.total)}</td>${type === 'invoice' ? `<td class="r">${money((+x.total) - (+x.paid))}</td>` : ''}</tr>`).join('') || `<tr><td colspan="${type === 'invoice' ? 6 : 5}" class="empty">No ${title.toLowerCase()} yet.</td></tr>`}
+    </tbody></table></div></div>`;
+  $('#new').onclick = () => (location.hash = 'sales/new-' + type);
+  wireRows('sales');
+}
+function salesBadge(s) {
+  const m = { draft: ['Draft', 'amber'], sent: ['Sent', 'blue'], paid: ['Paid', 'green'], cancelled: ['Cancelled', 'red'], converted: ['Converted', 'brand'] };
+  const x = m[s] || [s, '']; return `<span class="badge ${x[1]}">${esc(x[0])}</span>`;
+}
+ROUTES.sales = (arg) => {
+  if (arg === 'new-quote') return salesEditor(null, 'quote');
+  if (arg === 'new-invoice') return salesEditor(null, 'invoice');
+  return salesEditor(+arg, null);
+};
+async function salesEditor(id, type) {
+  const [companies, contacts, items] = [(await apiGet('companies')).data, (await apiGet('contacts')).data, (await apiGet('items')).data];
+  let doc = { doc_type: type, status: 'draft', issue_date: todayISO(), company_id: '', contact_id: '', notes: '', lines: [] };
+  if (id) { doc = (await apiGet('sales-doc&id=' + id)).data; type = doc.doc_type; }
+  const itemsById = Object.fromEntries(items.map((i) => [i.id, i]));
+  let L = (doc.lines || []).map((l) => ({ item_id: l.item_id || '', description: l.description, qty: +l.qty, price: +l.price, tax_rate: +l.tax_rate }));
+  if (!L.length) L.push({ item_id: '', description: '', qty: 1, price: 0, tax_rate: Number(state.settings.tax_rate || 0) });
+  const label = type === 'quote' ? 'Quote' : 'Invoice';
+  const owing = id ? (+doc.total - +doc.paid) : 0;
+  view().innerHTML = topbar((id ? doc.number : 'New ' + label), '') + `
+    <div class="toolbar"><a class="btn ghost sm" href="#${type === 'quote' ? 'quotes' : 'invoices'}">&larr; ${type === 'quote' ? 'Quotes' : 'Invoices'}</a><div class="spacer"></div>
+      ${id ? `<button class="btn ghost sm" id="print">Print</button>` : ''}
+      ${id && type === 'quote' && doc.status !== 'converted' ? `<button class="btn ghost sm" id="convert">Convert to invoice</button>` : ''}
+      ${id && type === 'invoice' ? `<button class="btn ghost sm" id="fulfil">${doc.fulfilled == 1 ? 'Unfulfil (restore stock)' : 'Fulfil (reduce stock)'}</button>` : ''}
+      ${id && type === 'invoice' && owing > 0.001 ? `<button class="btn good sm" id="pay">Record payment</button>` : ''}
+      ${id ? `<button class="btn danger sm" id="del">Delete</button>` : ''}
+    </div>
+    <div class="card"><div class="bd">
+      <div class="formgrid">
+        <label class="fld"><span>Customer (company)</span><select id="company_id"><option value="">- none -</option>${companies.map((c) => `<option value="${c.id}" ${c.id == doc.company_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
+        <label class="fld"><span>Contact</span><select id="contact_id"><option value="">- none -</option>${contacts.map((c) => `<option value="${c.id}" ${c.id == doc.contact_id ? 'selected' : ''}>${esc((c.first_name || '') + ' ' + (c.last_name || ''))}</option>`).join('')}</select></label>
+        <label class="fld"><span>Issue date</span><input id="issue_date" type="date" value="${esc((doc.issue_date || '').slice(0, 10))}"></label>
+        <label class="fld"><span>${type === 'quote' ? 'Valid until' : 'Due date'}</span><input id="due_date" type="date" value="${esc((doc.due_date || '').slice(0, 10))}"></label>
+      </div>
+      <div class="tablewrap"><table class="tbl" id="lt"><thead><tr><th style="min-width:160px">Item</th><th>Description</th><th class="r" style="width:70px">Qty</th><th class="r" style="width:90px">Price</th><th class="r" style="width:70px">Tax%</th><th class="r" style="width:100px">Amount</th><th style="width:30px"></th></tr></thead><tbody id="lb"></tbody></table></div>
+      <button class="btn ghost sm" id="addline" style="margin-top:8px">+ Line</button>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px"><div style="min-width:240px">
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span class="muted">Subtotal</span><b id="t_sub">${money(0)}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0"><span class="muted">Tax</span><b id="t_tax">${money(0)}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line);font-size:17px"><b>Total</b><b id="t_tot">${money(0)}</b></div>
+        ${id && type === 'invoice' ? `<div style="display:flex;justify-content:space-between;padding:4px 0"><span class="muted">Paid</span><b>${money(doc.paid)}</b></div>` : ''}
+      </div></div>
+      <label class="fld" style="margin-top:12px"><span>Notes</span><textarea id="notes">${esc(doc.notes || '')}</textarea></label>
+      <button class="btn" id="save">${id ? 'Save' : 'Create ' + label}</button>
+    </div></div>`;
+  const lb = $('#lb');
+  const renderLines = () => {
+    lb.innerHTML = L.map((l, idx) => `<tr data-i="${idx}">
+      <td><select data-f="item_id"><option value="">- custom -</option>${items.map((i) => `<option value="${i.id}" ${i.id == l.item_id ? 'selected' : ''}>${esc(i.code)} ${esc(i.name)}</option>`).join('')}</select></td>
+      <td><input data-f="description" value="${esc(l.description)}"></td>
+      <td><input data-f="qty" type="number" step="any" value="${l.qty}" class="r"></td>
+      <td><input data-f="price" type="number" step="any" value="${l.price}" class="r"></td>
+      <td><input data-f="tax_rate" type="number" step="any" value="${l.tax_rate}" class="r"></td>
+      <td class="r" data-lt>${money(l.qty * l.price)}</td>
+      <td><button class="btn ghost sm" data-rm>✕</button></td></tr>`).join('');
+    lb.querySelectorAll('tr').forEach((tr) => {
+      const i = +tr.dataset.i;
+      tr.querySelectorAll('[data-f]').forEach((inp) => (inp.oninput = inp.onchange = () => {
+        const f = inp.dataset.f;
+        L[i][f] = (f === 'item_id' || f === 'description') ? inp.value : (parseFloat(inp.value) || 0);
+        if (f === 'item_id' && inp.value && itemsById[inp.value]) { const it = itemsById[inp.value]; L[i].description = it.name; L[i].price = +it.price; L[i].tax_rate = +it.tax_rate; renderLines(); }
+        recompute();
+      }));
+      tr.querySelector('[data-rm]').onclick = () => { L.splice(i, 1); if (!L.length) L.push({ item_id: '', description: '', qty: 1, price: 0, tax_rate: 0 }); renderLines(); recompute(); };
+    });
+    recompute();
+  };
+  const recompute = () => {
+    let sub = 0, tax = 0;
+    lb.querySelectorAll('tr').forEach((tr) => { const l = L[+tr.dataset.i]; const lt = (l.qty || 0) * (l.price || 0); tr.querySelector('[data-lt]').textContent = money(lt); sub += lt; tax += lt * (l.tax_rate || 0) / 100; });
+    $('#t_sub').textContent = money(sub); $('#t_tax').textContent = money(tax); $('#t_tot').textContent = money(sub + tax);
+  };
+  renderLines();
+  $('#addline').onclick = () => { L.push({ item_id: '', description: '', qty: 1, price: 0, tax_rate: Number(state.settings.tax_rate || 0) }); renderLines(); };
+  $('#save').onclick = async () => {
+    const payload = { id: id || 0, doc_type: type, company_id: $('#company_id').value, contact_id: $('#contact_id').value, issue_date: $('#issue_date').value, due_date: $('#due_date').value, notes: $('#notes').value, status: doc.status || 'draft', lines: L };
+    try { const r = await apiPost('save-sales', payload); toast('Saved', 'good'); location.hash = 'sales/' + r.id; if (id) salesEditor(r.id, null); } catch (e) { toast(e.message, 'bad'); }
+  };
+  const btn = (sel, fn) => { const b = $(sel); if (b) b.onclick = fn; };
+  btn('#print', () => salesPrint(id));
+  btn('#del', async () => { if (!confirm('Delete this document? Any stock it fulfilled is restored.')) return; await apiPost('delete', { type: 'sales_doc', id }); toast('Deleted'); location.hash = type === 'quote' ? 'quotes' : 'invoices'; });
+  btn('#convert', async () => { if (!confirm('Create an invoice from this quote?')) return; const r = await apiPost('sales-convert', { id }); toast('Invoice created', 'good'); location.hash = 'sales/' + r.id; salesEditor(r.id, null); });
+  btn('#fulfil', async () => { try { await apiPost('sales-fulfil', { id, on: doc.fulfilled == 1 ? 0 : 1 }); toast('Stock updated', 'good'); salesEditor(id, null); } catch (e) { toast(e.message, 'bad'); } });
+  btn('#pay', () => openForm({ title: 'Record payment', fields: [{ key: 'amount', label: 'Amount', type: 'number', def: owing.toFixed(2) }], rec: {}, saveLabel: 'Record', onSave: async (x) => { x.id = id; await apiPost('sales-payment', x); toast('Payment recorded', 'good'); closeModal(); salesEditor(id, null); } }));
+}
+async function salesPrint(id) {
+  const d = (await apiGet('sales-doc&id=' + id)).data;
+  const org = esc(state.settings.org_name || 'Company');
+  const cust = esc(d.company || ((d.first_name || '') + ' ' + (d.last_name || '')) || '');
+  const rows = (d.lines || []).map((l) => `<tr><td>${esc(l.description)}</td><td style="text-align:right">${(+l.qty).toFixed(2)}</td><td style="text-align:right">${money(l.price)}</td><td style="text-align:right">${money(l.line_total)}</td></tr>`).join('');
+  const label = d.doc_type === 'quote' ? 'QUOTE' : 'INVOICE';
+  const w = window.open('', '_blank');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.number)}</title>
+    <style>body{font-family:Arial,sans-serif;color:#10202a;max-width:720px;margin:30px auto;padding:0 20px}h1{color:#0e7c86;margin:0}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:8px;border-bottom:1px solid #ddd;text-align:left}.tot{display:flex;justify-content:flex-end;margin-top:14px}.tot div{min-width:220px}.row{display:flex;justify-content:space-between;padding:4px 0}.hd{display:flex;justify-content:space-between;align-items:flex-start}</style></head><body>
+    <div class="hd"><div><h1>${org}</h1><div style="color:#5b6b76">1 Katherine St, Chatswood NSW 2067</div></div><div style="text-align:right"><h2 style="margin:0">${label}</h2><div><b>${esc(d.number)}</b></div><div style="color:#5b6b76">${esc(d.issue_date || '')}</div></div></div>
+    <div style="margin-top:20px"><b>To:</b> ${cust}</div>
+    <table><thead><tr><th>Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Price</th><th style="text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="tot"><div><div class="row"><span>Subtotal</span><span>${money(d.subtotal)}</span></div><div class="row"><span>Tax</span><span>${money(d.tax)}</span></div><div class="row" style="font-weight:bold;border-top:2px solid #0e7c86;padding-top:6px"><span>Total</span><span>${money(d.total)}</span></div></div></div>
+    ${d.notes ? `<p style="margin-top:20px;color:#5b6b76;white-space:pre-wrap">${esc(d.notes)}</p>` : ''}
+    <script>window.onload=function(){window.print()}<\/script></body></html>`);
+  w.document.close();
+}
+
+/* ---- Purchasing ---- */
+ROUTES.purchases = (arg) => {
+  if (arg === 'new') return purchaseEditor(null);
+  if (arg) return purchaseEditor(+arg);
+  return purchaseList();
+};
+async function purchaseList() {
+  const d = (await apiGet('purchases')).data;
+  view().innerHTML = topbar('Purchase Orders', d.length + ' total') + `
+    <div class="toolbar"><div class="spacer"></div><button class="btn" id="new">+ Purchase Order</button></div>
+    <div class="card"><div class="tablewrap"><table class="tbl"><thead><tr><th>Number</th><th>Supplier</th><th>Date</th><th>Status</th><th class="r">Total</th></tr></thead><tbody>
+    ${d.map((x) => `<tr class="clk" data-id="${x.id}"><td class="mono"><b>${esc(x.number)}</b></td><td>${esc(x.supplier || '-')}</td><td>${esc(x.order_date || '')}</td><td>${poBadge(x.status)}</td><td class="r">${money(x.total)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">No purchase orders yet.</td></tr>'}
+    </tbody></table></div></div>`;
+  $('#new').onclick = () => (location.hash = 'purchases/new');
+  wireRows('purchases');
+}
+function poBadge(s) { const m = { draft: ['Draft', 'amber'], ordered: ['Ordered', 'blue'], received: ['Received', 'green'], cancelled: ['Cancelled', 'red'] }; const x = m[s] || [s, '']; return `<span class="badge ${x[1]}">${esc(x[0])}</span>`; }
+async function purchaseEditor(id) {
+  const [suppliers, items] = [(await apiGet('suppliers')).data, (await apiGet('items')).data];
+  let doc = { supplier_id: '', status: 'draft', order_date: todayISO(), notes: '', lines: [], received: 0 };
+  if (id) doc = (await apiGet('purchase&id=' + id)).data;
+  const itemsById = Object.fromEntries(items.map((i) => [i.id, i]));
+  let L = (doc.lines || []).map((l) => ({ item_id: l.item_id || '', description: l.description, qty: +l.qty, price: +l.price }));
+  if (!L.length) L.push({ item_id: '', description: '', qty: 1, price: 0 });
+  view().innerHTML = topbar(id ? doc.number : 'New Purchase Order', '') + `
+    <div class="toolbar"><a class="btn ghost sm" href="#purchases">&larr; Purchase Orders</a><div class="spacer"></div>
+      ${id ? `<button class="btn ghost sm" id="recv">${doc.received == 1 ? 'Un-receive (reduce stock)' : 'Receive (add to stock)'}</button><button class="btn danger sm" id="del">Delete</button>` : ''}</div>
+    <div class="card"><div class="bd">
+      <div class="formgrid">
+        <label class="fld"><span>Supplier</span><select id="supplier_id"><option value="">- none -</option>${suppliers.map((s) => `<option value="${s.id}" ${s.id == doc.supplier_id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+        <label class="fld"><span>Order date</span><input id="order_date" type="date" value="${esc((doc.order_date || '').slice(0, 10))}"></label>
+      </div>
+      <div class="tablewrap"><table class="tbl"><thead><tr><th style="min-width:160px">Item</th><th>Description</th><th class="r" style="width:80px">Qty</th><th class="r" style="width:100px">Price</th><th class="r" style="width:110px">Amount</th><th style="width:30px"></th></tr></thead><tbody id="lb"></tbody></table></div>
+      <button class="btn ghost sm" id="addline" style="margin-top:8px">+ Line</button>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px"><div style="min-width:220px"><div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line);font-size:17px"><b>Total</b><b id="t_tot">${money(0)}</b></div></div></div>
+      <label class="fld" style="margin-top:12px"><span>Notes</span><textarea id="notes">${esc(doc.notes || '')}</textarea></label>
+      <button class="btn" id="save">${id ? 'Save' : 'Create PO'}</button>
+    </div></div>`;
+  const lb = $('#lb');
+  const renderLines = () => {
+    lb.innerHTML = L.map((l, idx) => `<tr data-i="${idx}">
+      <td><select data-f="item_id"><option value="">- custom -</option>${items.map((i) => `<option value="${i.id}" ${i.id == l.item_id ? 'selected' : ''}>${esc(i.code)} ${esc(i.name)}</option>`).join('')}</select></td>
+      <td><input data-f="description" value="${esc(l.description)}"></td>
+      <td><input data-f="qty" type="number" step="any" value="${l.qty}" class="r"></td>
+      <td><input data-f="price" type="number" step="any" value="${l.price}" class="r"></td>
+      <td class="r" data-lt>${money(l.qty * l.price)}</td>
+      <td><button class="btn ghost sm" data-rm>✕</button></td></tr>`).join('');
+    lb.querySelectorAll('tr').forEach((tr) => {
+      const i = +tr.dataset.i;
+      tr.querySelectorAll('[data-f]').forEach((inp) => (inp.oninput = inp.onchange = () => {
+        const f = inp.dataset.f; L[i][f] = (f === 'item_id' || f === 'description') ? inp.value : (parseFloat(inp.value) || 0);
+        if (f === 'item_id' && inp.value && itemsById[inp.value]) { L[i].description = itemsById[inp.value].name; L[i].price = +itemsById[inp.value].cost; renderLines(); }
+        recompute();
+      }));
+      tr.querySelector('[data-rm]').onclick = () => { L.splice(i, 1); if (!L.length) L.push({ item_id: '', description: '', qty: 1, price: 0 }); renderLines(); recompute(); };
+    });
+    recompute();
+  };
+  const recompute = () => { let t = 0; lb.querySelectorAll('tr').forEach((tr) => { const l = L[+tr.dataset.i]; const lt = (l.qty || 0) * (l.price || 0); tr.querySelector('[data-lt]').textContent = money(lt); t += lt; }); $('#t_tot').textContent = money(t); };
+  renderLines();
+  $('#addline').onclick = () => { L.push({ item_id: '', description: '', qty: 1, price: 0 }); renderLines(); };
+  $('#save').onclick = async () => { try { const r = await apiPost('save-purchase', { id: id || 0, supplier_id: $('#supplier_id').value, order_date: $('#order_date').value, notes: $('#notes').value, status: doc.status || 'draft', lines: L }); toast('Saved', 'good'); location.hash = 'purchases/' + r.id; purchaseEditor(r.id); } catch (e) { toast(e.message, 'bad'); } };
+  const rb = $('#recv'); if (rb) rb.onclick = async () => { try { await apiPost('purchase-receive', { id, on: doc.received == 1 ? 0 : 1 }); toast('Stock updated', 'good'); purchaseEditor(id); } catch (e) { toast(e.message, 'bad'); } };
+  const db2 = $('#del'); if (db2) db2.onclick = async () => { if (!confirm('Delete this PO? Any received stock is reversed.')) return; await apiPost('delete', { type: 'purchase_doc', id }); toast('Deleted'); location.hash = 'purchases'; };
+}
 
 /* ---------- modal + generic form ---------- */
 function openModal(title, bodyHtml, footHtml) {

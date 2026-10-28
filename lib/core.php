@@ -103,7 +103,53 @@ function schema_migrations(): array
             $db->prepare('INSERT OR IGNORE INTO settings (k,v) VALUES (?,?)')->execute(['org_name', 'My Company']);
             $db->prepare('INSERT OR IGNORE INTO settings (k,v) VALUES (?,?)')->execute(['currency', '$']);
         },
+        // 2 - core ERP: items/inventory, sales docs, purchasing, suppliers
+        function (PDO $db) {
+            $db->exec("CREATE TABLE IF NOT EXISTS items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT, name TEXT, description TEXT,
+                type TEXT DEFAULT 'stock', unit TEXT DEFAULT 'ea', price REAL DEFAULT 0, cost REAL DEFAULT 0,
+                qty REAL DEFAULT 0, reorder_level REAL DEFAULT 0, tax_rate REAL DEFAULT 0,
+                active INTEGER DEFAULT 1, created_at TEXT, updated_at TEXT)");
+            $db->exec("CREATE TABLE IF NOT EXISTS stock_moves (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER, qty_change REAL, reason TEXT, ref TEXT,
+                user_id INTEGER, created_at TEXT)");
+            $db->exec("CREATE TABLE IF NOT EXISTS suppliers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, email TEXT, phone TEXT, address TEXT,
+                notes TEXT, created_at TEXT, updated_at TEXT)");
+            $db->exec("CREATE TABLE IF NOT EXISTS sales_docs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, doc_type TEXT DEFAULT 'invoice', number TEXT,
+                company_id INTEGER, contact_id INTEGER, status TEXT DEFAULT 'draft',
+                issue_date TEXT, due_date TEXT, subtotal REAL DEFAULT 0, tax REAL DEFAULT 0, total REAL DEFAULT 0,
+                paid REAL DEFAULT 0, fulfilled INTEGER DEFAULT 0, notes TEXT, created_at TEXT, updated_at TEXT)");
+            $db->exec("CREATE TABLE IF NOT EXISTS sales_lines (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, doc_id INTEGER, item_id INTEGER, description TEXT,
+                qty REAL DEFAULT 1, price REAL DEFAULT 0, tax_rate REAL DEFAULT 0, line_total REAL DEFAULT 0)");
+            $db->exec("CREATE TABLE IF NOT EXISTS purchase_docs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, number TEXT, supplier_id INTEGER, status TEXT DEFAULT 'draft',
+                order_date TEXT, subtotal REAL DEFAULT 0, tax REAL DEFAULT 0, total REAL DEFAULT 0,
+                received INTEGER DEFAULT 0, notes TEXT, created_at TEXT, updated_at TEXT)");
+            $db->exec("CREATE TABLE IF NOT EXISTS purchase_lines (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, doc_id INTEGER, item_id INTEGER, description TEXT,
+                qty REAL DEFAULT 1, price REAL DEFAULT 0, line_total REAL DEFAULT 0)");
+            $db->exec("CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, n INTEGER DEFAULT 0)");
+            foreach ([
+                'CREATE INDEX IF NOT EXISTS ix_sales_lines ON sales_lines(doc_id)',
+                'CREATE INDEX IF NOT EXISTS ix_purchase_lines ON purchase_lines(doc_id)',
+                'CREATE INDEX IF NOT EXISTS ix_stock_moves ON stock_moves(item_id)',
+                'CREATE INDEX IF NOT EXISTS ix_sales_docs_type ON sales_docs(doc_type,status)',
+            ] as $sql) { try { $db->exec($sql); } catch (Throwable $e) {} }
+            $db->prepare('INSERT OR IGNORE INTO settings (k,v) VALUES (?,?)')->execute(['tax_rate', '10']);
+            $db->prepare('INSERT OR IGNORE INTO settings (k,v) VALUES (?,?)')->execute(['tax_label', 'GST']);
+        },
     ];
+}
+
+/** Next document number for a counter (e.g. INV, Q, PO) -> "INV-0001". */
+function next_number(PDO $db, string $prefix): string
+{
+    $db->prepare('INSERT INTO counters (name,n) VALUES (?,1) ON CONFLICT(name) DO UPDATE SET n=n+1')->execute([$prefix]);
+    $n = (int)$db->query('SELECT n FROM counters WHERE name=' . $db->quote($prefix))->fetchColumn();
+    return $prefix . '-' . str_pad((string)$n, 4, '0', STR_PAD_LEFT);
 }
 
 function meta_get(PDO $db, string $k): ?string
