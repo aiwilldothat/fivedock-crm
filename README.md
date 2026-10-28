@@ -26,7 +26,13 @@ SMTP/IMAP). If you ever want AI features, you bring your own API key - nothing i
 
 ## Install
 
-1. Copy this `free/` folder onto your server (rename it to whatever you like, e.g. `crm`).
+Get the code - download the ZIP from the project home page, or clone it:
+
+```bash
+git clone https://github.com/aiwilldothat/fivedock-crm.git
+```
+
+1. Copy the folder onto your server (rename it to whatever you like, e.g. `crm`).
 2. Make sure the `data/` folder is writable by the web server.
 3. Point your browser at the folder. The first visit asks you to create the admin account.
 
